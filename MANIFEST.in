@@ -1,0 +1,15 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+recursive-include towel_grid_fix *.css
+recursive-include towel_grid_fix *.csv
+recursive-include towel_grid_fix *.html
+recursive-include towel_grid_fix *.ico
+recursive-include towel_grid_fix *.js
+recursive-include towel_grid_fix *.json
+recursive-include towel_grid_fix *.md
+recursive-include towel_grid_fix *.png
+recursive-include towel_grid_fix *.py
+recursive-include towel_grid_fix *.svg
+recursive-include towel_grid_fix *.txt
+recursive-exclude towel_grid_fix *.pyc
