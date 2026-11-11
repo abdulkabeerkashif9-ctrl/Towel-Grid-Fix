@@ -28,7 +28,7 @@
 // is guaranteed unaffected.
 //
 // WHAT THIS SCRIPT DOES
-//   1. Disables validate_columns_width() so "Configure Columns" accepts any
+//   1. Disables validate_columns_width() and the column-dropping in Grid.setup_visible_columns() so "Configure Columns" accepts any
 //      number of columns / any total width (tested for 25+).
 //   2. Forces the grid to scroll horizontally (real scrollbar) once the
 //      shown columns no longer fit the visible width, instead of squeezing
@@ -41,45 +41,122 @@
 // one global stylesheet, so it applies to every child-table grid.
 // ============================================================================
 
-frappe.provide("frappe.ui.form");
+// ---------------------------------------------------------------------------
+// 1. Remove the 10-unit total column-width limit.
+// ---------------------------------------------------------------------------
+// In Frappe v15 `Grid` and `GridRow` are ES-module classes: they are NOT exposed as
+// `frappe.ui.form.Grid` / `frappe.ui.form.GridRow`, so they cannot be patched at load time.
+// Instead they are reached through live instances the first time a form is shown:
+//   frm.grids[i].grid                -> a Grid          (its prototype is Grid.prototype)
+//   frm.grids[i].grid.header_row     -> a GridRow       (its prototype is GridRow.prototype)
+// Two places enforce the limit and both are replaced:
+//   GridRow.validate_columns_width()  throws "The total column width cannot be more than 10"
+//   Grid.setup_visible_columns()      silently stops adding columns once their widths add up to 10
+(function () {
+	if (window.__towel_grid_fix_installed) return;
+	window.__towel_grid_fix_installed = true;
 
-// ---------------------------------------------------------------------------
-// 1. Bypass the 10-unit total column-width validation.
-// ---------------------------------------------------------------------------
-// GridRow lives in the form bundle. It is normally defined before app_include_js
-// runs, but if it is not yet (load order differs between Frappe builds) keep
-// retrying instead of throwing "Cannot read properties of undefined" and
-// leaving the limit in place.
-(function bypass_grid_column_width_limit(attempt) {
-	attempt = attempt || 0;
-	const GridRow = frappe.ui && frappe.ui.form && frappe.ui.form.GridRow;
-	if (!GridRow) {
-		if (attempt < 100) setTimeout(() => bypass_grid_column_width_limit(attempt + 1), 100);
-		return;
+	function setup_visible_columns() {
+		// identical to Frappe's version-15 Grid.setup_visible_columns except that columns are never
+		// dropped when the widths add up to more than 10 (`if (total_colsize > 11) return false;`)
+		if (this.visible_columns && this.visible_columns.length > 0) return;
+
+		this.user_defined_columns = [];
+		this.setup_user_defined_columns();
+		const user_cols = this.user_defined_columns && this.user_defined_columns.length > 0;
+		const fields = user_cols ? this.user_defined_columns : this.editable_fields || this.docfields;
+		let total_colsize = 1;
+
+		this.visible_columns = [];
+
+		for (const ci in fields) {
+			const _df = fields[ci];
+			const df = user_cols ? _df : this.fields_map[_df.fieldname];
+
+			if (
+				df &&
+				!df.hidden &&
+				(this.editable_fields || df.in_list_view) &&
+				((this.frm && this.frm.get_perm(df.permlevel, "read")) || !this.frm) &&
+				!frappe.model.layout_fields.includes(df.fieldtype)
+			) {
+				if (df.columns) {
+					df.colsize = df.columns;
+				} else {
+					this.update_default_colsize(df);
+				}
+
+				if (df.fieldtype == "Link" && !df.formatter && df.parent && frappe.meta.docfield_map[df.parent]) {
+					const docfield = frappe.meta.docfield_map[df.parent][df.fieldname];
+					if (docfield && docfield.formatter) {
+						df.formatter = docfield.formatter;
+					}
+				}
+
+				total_colsize += df.colsize;
+				this.visible_columns.push([df, df.colsize]);
+			}
+		}
+
+		// widen columns only while there is room (never once the 10 units are used)
+		let passes = 0;
+		while (total_colsize < 11 && passes < 12) {
+			for (const i in this.visible_columns) {
+				const df = this.visible_columns[i][0];
+				const colsize = this.visible_columns[i][1];
+				if (colsize > 1 && colsize < 11 && frappe.model.is_non_std_field(df.fieldname)) {
+					if (passes < 3 && ["Int", "Currency", "Float", "Check", "Percent"].indexOf(df.fieldtype) !== -1) {
+						continue;
+					}
+					this.visible_columns[i][1] += 1;
+					total_colsize++;
+				}
+				if (total_colsize > 10) break;
+			}
+			passes++;
+		}
 	}
-	if (GridRow.prototype.__towel_column_limit_patched) return;
 
-	// Original implementation (for reference - this is what we're disabling):
-	//
-	//   validate_columns_width() {
-	//     let total_column_width = 0.0;
-	//     this.selected_columns_for_grid.forEach((row) => {
-	//       if (row.columns && row.columns > 0) {
-	//         total_column_width += cint(row.columns);
-	//       }
-	//     });
-	//     if (total_column_width && total_column_width > 10) {
-	//       frappe.throw(__("The total column width cannot be more than 10."));
-	//     }
-	//   }
-	//
-	// Replaced with a no-op so "Configure Columns" -> Update never throws,
-	// no matter how many columns are selected or how wide they are set.
-	GridRow.prototype.validate_columns_width = function () {
-		// intentionally empty - limit bypassed
-	};
+	function patch(frm) {
+		let fresh = false;
+		(frm.grids || []).forEach((ctrl) => {
+			const grid = ctrl && ctrl.grid;
+			if (!grid) return;
 
-	GridRow.prototype.__towel_column_limit_patched = true;
+			const GridProto = Object.getPrototypeOf(grid);
+			if (!GridProto.__towel_patched) {
+				GridProto.setup_visible_columns = setup_visible_columns;
+				GridProto.__towel_patched = true;
+				fresh = true;
+			}
+
+			// header_row exists once the grid has rendered; rows are an equally good source
+			const some_row = grid.header_row || (grid.grid_rows && grid.grid_rows[0]);
+			if (some_row) {
+				const RowProto = Object.getPrototypeOf(some_row);
+				if (!RowProto.__towel_patched) {
+					RowProto.validate_columns_width = function () {
+						// intentionally empty - limit bypassed
+					};
+					RowProto.__towel_patched = true;
+				}
+			}
+		});
+
+		// the grids on this form were drawn with the old limit: draw them again
+		if (fresh) {
+			(frm.grids || []).forEach((ctrl) => {
+				if (ctrl && ctrl.grid) {
+					ctrl.grid.visible_columns = [];
+					try { ctrl.grid.refresh(); } catch (e) { /* never block a form */ }
+				}
+			});
+		}
+	}
+
+	$(document).on("form-load form-refresh", function (e, frm) {
+		try { patch(frm || window.cur_frm); } catch (err) { console.error("towel_grid_fix", err); }
+	});
 })();
 
 // ---------------------------------------------------------------------------
