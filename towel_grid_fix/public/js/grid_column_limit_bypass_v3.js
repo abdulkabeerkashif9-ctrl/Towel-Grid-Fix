@@ -170,33 +170,74 @@
 // screen - so columns stay full width and a scrollbar appears instead.
 frappe.dom.set_style(
 	`
+	/* the container scrolls sideways; the grid inside is as wide as its widest row, so the header, row
+	   backgrounds, borders and the edit (pencil) column all stay together while scrolling */
 	.form-grid-container {
 		overflow-x: auto !important;
 	}
-	/* only the header row and the data rows themselves (.data-row): the expanded
-	   row editor inside a grid also contains ".row" blocks, which must keep
-	   their normal wrapping layout */
-	.form-grid-container .grid-heading-row .data-row,
-	.form-grid-container .grid-row > .data-row {
-		flex-wrap: nowrap !important;
+	.form-grid-container .form-grid {
 		width: max-content;
 		min-width: 100%;
 	}
-	.form-grid-container .col-xs-1  { flex: 0 0 70px;  width: 70px; }
-	.form-grid-container .col-xs-2  { flex: 0 0 140px; width: 140px; }
-	.form-grid-container .col-xs-3  { flex: 0 0 210px; width: 210px; }
-	.form-grid-container .col-xs-4  { flex: 0 0 280px; width: 280px; }
-	.form-grid-container .col-xs-5  { flex: 0 0 350px; width: 350px; }
-	.form-grid-container .col-xs-6  { flex: 0 0 420px; width: 420px; }
-	.form-grid-container .col-xs-7  { flex: 0 0 490px; width: 490px; }
-	.form-grid-container .col-xs-8  { flex: 0 0 560px; width: 560px; }
-	.form-grid-container .col-xs-9  { flex: 0 0 630px; width: 630px; }
-	.form-grid-container .col-xs-10 { flex: 0 0 700px; width: 700px; }
-	.form-grid-container .col-xs-11 { flex: 0 0 770px; width: 770px; }
-	.form-grid-container .col-xs-12 { flex: 0 0 840px; width: 840px; }
+	/* only the header row and the data rows themselves (.data-row): the expanded row editor inside a grid
+	   also contains ".row" blocks, which must keep their normal wrapping layout */
+	.form-grid-container .grid-heading-row .data-row,
+	.form-grid-container .grid-row > .data-row {
+		flex-wrap: nowrap !important;
+		width: auto;
+		min-width: 100%;
+	}
+	/* the expanded "Editing Row" panel always sits in the visible part of the grid, however far it is scrolled */
+	.form-grid-container .grid-row > .form-in-grid {
+		position: sticky;
+		left: 0;
+		width: var(--towel-grid-width, 100%);
+		max-width: 100%;
+	}
+	.form-grid-container .grid-heading-row .data-row > .col-xs-1, .form-grid-container .grid-row > .data-row > .col-xs-1 { flex: 0 0 70px; width: 70px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-2, .form-grid-container .grid-row > .data-row > .col-xs-2 { flex: 0 0 140px; width: 140px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-3, .form-grid-container .grid-row > .data-row > .col-xs-3 { flex: 0 0 210px; width: 210px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-4, .form-grid-container .grid-row > .data-row > .col-xs-4 { flex: 0 0 280px; width: 280px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-5, .form-grid-container .grid-row > .data-row > .col-xs-5 { flex: 0 0 350px; width: 350px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-6, .form-grid-container .grid-row > .data-row > .col-xs-6 { flex: 0 0 420px; width: 420px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-7, .form-grid-container .grid-row > .data-row > .col-xs-7 { flex: 0 0 490px; width: 490px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-8, .form-grid-container .grid-row > .data-row > .col-xs-8 { flex: 0 0 560px; width: 560px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-9, .form-grid-container .grid-row > .data-row > .col-xs-9 { flex: 0 0 630px; width: 630px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-10, .form-grid-container .grid-row > .data-row > .col-xs-10 { flex: 0 0 700px; width: 700px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-11, .form-grid-container .grid-row > .data-row > .col-xs-11 { flex: 0 0 770px; width: 770px; }
+	.form-grid-container .grid-heading-row .data-row > .col-xs-12, .form-grid-container .grid-row > .data-row > .col-xs-12 { flex: 0 0 840px; width: 840px; }
 `,
 	"towel-grid-column-limit-bypass-style"
 );
+
+// keep --towel-grid-width = visible width of each grid container (used by the sticky row editor above)
+(function () {
+	const seen = new WeakSet();
+	let ro = null;
+
+	function fit(el) {
+		const w = el.clientWidth;
+		if (w > 0) el.style.setProperty("--towel-grid-width", w + "px");
+	}
+
+	function watch() {
+		document.querySelectorAll(".form-grid-container").forEach((el) => {
+			fit(el);
+			if (seen.has(el)) return;
+			seen.add(el);
+			if (window.ResizeObserver) {
+				ro = ro || new ResizeObserver((entries) => entries.forEach((e) => fit(e.target)));
+				ro.observe(el);
+			}
+		});
+	}
+
+	$(document).on("form-load form-refresh grid-row-render", function () {
+		watch();
+		setTimeout(watch, 300);
+	});
+	window.addEventListener("resize", watch);
+})();
 
 // ---------------------------------------------------------------------------
 // Practical notes:
