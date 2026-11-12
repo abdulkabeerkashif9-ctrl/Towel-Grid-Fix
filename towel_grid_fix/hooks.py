@@ -14,7 +14,7 @@ app_license = "mit"
 # include js in header of desk.html - loads on EVERY Desk page, so the
 # column-limit patch applies to every child-table grid in every doctype
 # automatically. No per-doctype Client Script needed.
-app_include_js = "/assets/towel_grid_fix/js/grid_column_limit_bypass.js"
+app_include_js = "/assets/towel_grid_fix/js/grid_column_limit_bypass_v2.js"
 
 # app_include_css = "/assets/towel_grid_fix/css/towel_grid_fix.css"
 
