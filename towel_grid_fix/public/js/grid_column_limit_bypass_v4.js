@@ -174,6 +174,9 @@ frappe.dom.set_style(
 	   backgrounds, borders and the edit (pencil) column all stay together while scrolling */
 	.form-grid-container {
 		overflow-x: auto !important;
+		/* overflow-x other than visible forces overflow-y to auto, which showed a vertical scrollbar:
+		   the container is exactly as tall as its content, so nothing needs to scroll vertically */
+		overflow-y: hidden !important;
 	}
 	.form-grid-container .form-grid {
 		width: max-content;
