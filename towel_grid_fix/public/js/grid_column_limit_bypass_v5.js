@@ -243,6 +243,80 @@ frappe.dom.set_style(
 })();
 
 // ---------------------------------------------------------------------------
+// 3. Link / autocomplete lists must not be clipped by the scrolling grid.
+// ---------------------------------------------------------------------------
+// The grid container above scrolls sideways (overflow-x:auto) and therefore clips everything that sticks out
+// of it - including the suggestion list of a Link field, which is absolutely positioned inside its cell. While
+// the list is open it is moved out of the clipping context with position:fixed, placed right under the input
+// (above it when there is no room below), and put back when it closes.
+(function () {
+	const LIST_STYLE = ["position", "left", "top", "bottom", "min-width", "max-width", "max-height", "overflow-y", "z-index", "width"];
+	let current = null; // input whose list is open
+
+	function list_of(input) {
+		const wrap = input.closest(".awesomplete");
+		return wrap ? wrap.querySelector(":scope > ul") : null;
+	}
+
+	function reset(ul) {
+		if (!ul) return;
+		LIST_STYLE.forEach((p) => ul.style.removeProperty(p));
+	}
+
+	function place(input) {
+		const ul = list_of(input);
+		if (!ul) return;
+		const r = input.getBoundingClientRect();
+		const room_below = window.innerHeight - r.bottom;
+		const room_above = r.top;
+		const max_h = Math.max(120, Math.min(280, Math.max(room_below, room_above) - 12));
+		ul.style.setProperty("position", "fixed", "important");
+		ul.style.setProperty("left", Math.max(0, r.left) + "px", "important");
+		ul.style.setProperty("min-width", Math.max(r.width, 200) + "px", "important");
+		ul.style.setProperty("max-width", Math.max(r.width, 360) + "px", "important");
+		ul.style.setProperty("max-height", max_h + "px", "important");
+		ul.style.setProperty("overflow-y", "auto", "important");
+		ul.style.setProperty("z-index", "1060", "important");
+		if (room_below >= Math.min(max_h, 200) || room_below >= room_above) {
+			ul.style.setProperty("top", r.bottom + 2 + "px", "important");
+			ul.style.removeProperty("bottom");
+		} else {
+			ul.style.setProperty("bottom", window.innerHeight - r.top + 2 + "px", "important");
+			ul.style.removeProperty("top");
+		}
+	}
+
+	function in_grid(el) {
+		return el && el.closest && el.closest(".form-grid-container, .grid-row");
+	}
+
+	document.addEventListener("awesomplete-open", function (e) {
+		if (!in_grid(e.target)) return;
+		current = e.target;
+		place(current);
+	}, true);
+
+	// list contents change while typing -> height changes
+	document.addEventListener("input", function (e) {
+		if (current && e.target === current) setTimeout(() => place(current), 0);
+	}, true);
+
+	["awesomplete-close", "awesomplete-selectcomplete"].forEach(function (name) {
+		document.addEventListener(name, function (e) {
+			if (!in_grid(e.target)) return;
+			reset(list_of(e.target));
+			if (current === e.target) current = null;
+		}, true);
+	});
+
+	function follow() {
+		if (current && document.body.contains(current)) place(current);
+	}
+	window.addEventListener("scroll", follow, true); // page, grid container and any other scroller
+	window.addEventListener("resize", follow);
+})();
+
+// ---------------------------------------------------------------------------
 // Practical notes:
 // - Each individual column's width is still capped 1-12 (that's an
 //   independent Bootstrap class limit in Frappe's grid CSS, "col-xs-13" etc.
